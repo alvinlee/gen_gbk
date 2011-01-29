@@ -1,0 +1,6 @@
+GEN GBK
+
+A erlang code generator write in bash script.
+This script use iconv to build a encoding convert table
+between gbk and unicode utf-16, then you can combine it
+with erlang unicode library to get utf-8 encoding.

@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+
+gbk() {
+    awk 'BEGIN {for(a=129;a<=254;a++)for(b=64;b<=254;b++)printf("%u %u\n",a,b)}'
+}
+
+ucs() {
+    awk 'BEGIN {for(a=129;a<=254;a++)for(b=64;b<=254;b++)printf("%c%c\n",a,b)}' | \
+        iconv -c -f gbk -t utf16le | od -An -t u2 -w2 -v | awk 'BEGIN{RS="( 10\n)"}{print $1}'
+}
+
+save=$(mktemp)
+paste <(gbk) <(ucs) > "$save"
+
+dest="gbk.erl"
+cat > "$dest" <<EOF
+-module(gbk).
+
+-export([decode/1, encode/1]).
+
+decode(In) -> lists:reverse(decode(In, [])).
+
+decode([], U) -> U;
+decode([A,B|Z], U) when A>=129, B>=64, A=<254, B=<254 -> decode(A,B,Z,U);
+decode([A|Z], U) -> decode(Z, [A|U]);
+
+decode(<<>>, U) -> U;
+decode(<<A,B,Z/binary>>, U) when A>=129, B>=64, A=<254, B=<254 -> decode(A,B,Z,U);
+decode(<<A,Z/binary>>, U) -> decode(Z, [A|U]).
+
+decode(A,B,Z,U) ->
+    case decodec(A, B) of
+        not_found -> throw({not_found, A, B});
+        C -> decode(Z, [C|U]) end.
+
+encode(List) -> encode(List, []).
+encode([], U) -> lists:reverse(U);
+encode([C|Z], U) when C<129 -> encode(Z, [C|U]);
+encode([C|Z], U) -> 
+    case encodec(C) of
+        not_found -> throw({not_found, C});
+        {A, B} -> encode(Z, [B,A|U]) end.
+
+EOF
+
+cat $save | awk '{
+if (NF>2) printf "decodec(%s,%s) -> %s;\n", $1, $2, $3 }' >> "$dest"
+
+echo "decodec(_,_) -> not_found." >> "$dest"
+
+cat $save | awk '{
+if (NF>2) printf "encodec(%s) -> {%s,%s};\n", $3, $1, $2 }' >> "$dest"
+
+echo "encodec(_) -> not_found." >> "$dest"
+
+rm "$save"
